@@ -64,16 +64,15 @@ class ImportGraphExtractor:
     # Parsing
     # ------------------------------------------------------------------
     def parse_all(self):
-        """
-        For each module in self.module_index, parse the file with
-        tree-sitter, extract its imports, resolve them to module paths
-        in this repo, and populate self.edges.
-        """
         for module_path, file_path in self.module_index.items():
             source = file_path.read_bytes()
             tree = self.parser.parse(source)
             raw_imports = self._extract_imports(tree.root_node, source)
-            self.edges[module_path] = raw_imports
+            print(f"{module_path}: raw={raw_imports}")  # temporary debug
+            for raw in raw_imports:
+                resolved = self._resolve_import(module_path, raw)
+                if resolved and resolved != module_path:
+                    self.edges[module_path].add(resolved)
 
     def _extract_imports(self, root_node, source: bytes) -> set[str]:
         """
@@ -107,7 +106,21 @@ class ImportGraphExtractor:
         Resolve a raw import string to a module path in self.module_index,
         or return None if it's an external (stdlib/third-party) import.
         """
-        pass
+        if raw_import.startswith('.'):
+            # relative import (your code here, fix later)
+            level = len(raw_import) - len(raw_import.lstrip('.'))
+            base_parts = importing_module.split('.')[:-level] if level > 0 else importing_module.split('.')
+            remainder = raw_import.lstrip('.')
+            candidate = '.'.join(base_parts + [remainder]) if remainder else '.'.join(base_parts)
+            return candidate if candidate in self.module_index else None
+        else:
+            # absolute import — try progressively shorter prefixes
+            parts = raw_import.split('.')
+            for i in range(len(parts), 0, -1):
+                candidate = '.'.join(parts[:i])
+                if candidate in self.module_index:
+                    return candidate
+            return None
 
     # ------------------------------------------------------------------
     # Output
@@ -118,9 +131,9 @@ class ImportGraphExtractor:
 
 
 if __name__ == "__main__":
-    extractor = ImportGraphExtractor(".")
+    extractor = ImportGraphExtractor("backend")
     extractor.discover_modules()
     extractor.parse_all()
+    print("=== EDGES ===")
     for module, imports in extractor.edges.items():
-        if imports:  # only print modules that import something
-            print(module, "->", imports)
+        print(module, "->", imports)
