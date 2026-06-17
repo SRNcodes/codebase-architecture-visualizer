@@ -7,6 +7,7 @@ edges represent import relationships between them.
 """
 
 from pathlib import Path
+from platform import node
 
 import tree_sitter_python as tspython
 from tree_sitter import Language, Parser
@@ -68,14 +69,35 @@ class ImportGraphExtractor:
         tree-sitter, extract its imports, resolve them to module paths
         in this repo, and populate self.edges.
         """
-        pass
+        for module_path, file_path in self.module_index.items():
+            source = file_path.read_bytes()
+            tree = self.parser.parse(source)
+            raw_imports = self._extract_imports(tree.root_node, source)
+            self.edges[module_path] = raw_imports
 
     def _extract_imports(self, root_node, source: bytes) -> set[str]:
         """
         Walk the AST and return the set of raw import targets as strings
         (e.g. "os", "collections", ".utils", "..pkg.thing").
         """
-        pass
+        imports = set()
+        def walk(node):
+            if node.type == "import_statement":
+                name_node = node.child_by_field_name("name")
+                if name_node is not None:
+                    if name_node.type == "aliased_import":
+                        name_node = name_node.child_by_field_name("name")
+                    if name_node is not None:
+                        imports.add(name_node.text.decode("utf-8"))
+            elif node.type == "import_from_statement":
+                module_node = node.child_by_field_name("module_name")
+                if module_node is not None:
+                    imports.add(module_node.text.decode("utf-8"))
+            for child in node.children:
+                walk(child)
+    
+        walk(root_node)
+        return imports
 
     # ------------------------------------------------------------------
     # Resolution
@@ -94,8 +116,11 @@ class ImportGraphExtractor:
         """Return {'nodes': [...], 'edges': [...]} for JSON serialization."""
         pass
 
+
 if __name__ == "__main__":
     extractor = ImportGraphExtractor(".")
     extractor.discover_modules()
-    for module, path in extractor.module_index.items():
-        print(module, "->", path)
+    extractor.parse_all()
+    for module, imports in extractor.edges.items():
+        if imports:  # only print modules that import something
+            print(module, "->", imports)
