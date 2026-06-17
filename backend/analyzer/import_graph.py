@@ -127,13 +127,19 @@ class ImportGraphExtractor:
     # ------------------------------------------------------------------
     def to_graph_dict(self) -> dict:
         """Return {'nodes': [...], 'edges': [...]} for JSON serialization."""
-        pass
+        return {
+            "nodes": [{"id": module_path, "file": str(file_path)} for module_path, file_path in self.module_index.items()],
+            "edges": [
+                        {"source": src, "target": dst}
+                        for src, targets in self.edges.items()
+                        for dst in targets
+                    ]
+        }
 
 
 if __name__ == "__main__":
+    import json
     extractor = ImportGraphExtractor("backend")
     extractor.discover_modules()
     extractor.parse_all()
-    print("=== EDGES ===")
-    for module, imports in extractor.edges.items():
-        print(module, "->", imports)
+    print(json.dumps(extractor.to_graph_dict(), indent=2))
