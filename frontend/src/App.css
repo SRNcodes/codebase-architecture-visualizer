@@ -75,6 +75,46 @@ body {
   color: #e5686c;
 }
 
+.search-input {
+  margin-top: 14px;
+  margin-bottom: 12px;
+}
+
+.legend {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px 0 4px;
+}
+
+.legend-row {
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  color: #b7bcc6;
+}
+
+.legend-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-right: 8px;
+}
+
+.legend-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.legend-count {
+  color: #6b7280;
+  font-variant-numeric: tabular-nums;
+  margin-left: 8px;
+}
+
 .node-detail {
   margin-top: 24px;
   padding-top: 16px;
