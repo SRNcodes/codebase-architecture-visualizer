@@ -2,7 +2,7 @@ import tempfile
 from pathlib import Path
 import textwrap
 
-from analyzer.import_graph import ImportGraph
+from analyzer.import_graph import ImportGraphExtractor
 
 
 def write_file(path: Path, content: str):
@@ -18,13 +18,16 @@ def test_simple_imports(tmp_path):
     write_file(pkg / "a.py", "from mypkg.b import B\nimport os\n")
     write_file(pkg / "b.py", "import sys\n")
 
-    g = ImportGraph(tmp_path)
-    graph = g.build()
+    g = ImportGraphExtractor(tmp_path)
+    g.discover_modules()
+    g.parse_all()
+    graph = g.edges
 
     # module names should be relative to the tmp_path
     assert "mypkg.a" in graph
     assert "mypkg.b" in graph
 
-    assert "os" in graph["mypkg.a"]
+    # os and sys are external imports, so they're not resolved into the graph
+    assert "mypkg.b" in graph["mypkg.a"]
     assert "mypkg" not in graph["mypkg.a"]
-    assert "sys" in graph["mypkg.b"]
+    assert graph["mypkg.b"] == set()

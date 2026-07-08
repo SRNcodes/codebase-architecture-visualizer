@@ -1,1 +1,8 @@
+fastapi
+uvicorn[standard]
+pydantic
+tree-sitter
+tree-sitter-python
+anthropic
+python-dotenv
 pytest

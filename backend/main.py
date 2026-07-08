@@ -1,9 +1,14 @@
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from analyzer.import_graph import ImportGraphExtractor
+from analyzer.summarizer import ModuleSummarizer
+
+load_dotenv()
 
 app = FastAPI()
+_summarizer = ModuleSummarizer()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -49,6 +54,19 @@ def get_node(node_id: str):
         "dependencies": dependencies,
         "dependents": dependents,
     }
+
+@app.get("/summarize/{node_id}")
+def summarize_node(node_id: str):
+    if _last_graph is None:
+        raise HTTPException(status_code=404, detail="No graph computed yet")
+
+    node = next((n for n in _last_graph["nodes"] if n["id"] == node_id), None)
+    if node is None:
+        raise HTTPException(status_code=404, detail="Node not found")
+
+    summary = _summarizer.summarize(node_id, node["file"])
+    return {"id": node_id, "summary": summary}
+
 
 @app.get("/graph")
 def get_graph():
