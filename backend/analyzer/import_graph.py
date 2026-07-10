@@ -7,7 +7,6 @@ edges represent import relationships between them.
 """
 
 from pathlib import Path
-from platform import node
 
 import tree_sitter_python as tspython
 from tree_sitter import Language, Parser
@@ -68,7 +67,6 @@ class ImportGraphExtractor:
             source = file_path.read_bytes()
             tree = self.parser.parse(source)
             raw_imports = self._extract_imports(tree.root_node, source)
-            print(f"{module_path}: raw={raw_imports}")  # temporary debug
             for raw in raw_imports:
                 resolved = self._resolve_import(module_path, raw)
                 if resolved and resolved != module_path:
