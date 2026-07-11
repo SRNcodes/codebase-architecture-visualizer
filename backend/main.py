@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,7 +19,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-_last_graph = None
+# Single-user, single-repo cache: the app only ever tracks the most
+# recently analyzed graph. Persisted to disk so it survives a backend
+# restart instead of forcing a full re-analyze.
+_CACHE_FILE = Path(__file__).parent / ".cache" / "last_graph.json"
+
+
+def _load_cached_graph():
+    if not _CACHE_FILE.exists():
+        return None
+    try:
+        return json.loads(_CACHE_FILE.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _save_cached_graph(graph: dict) -> None:
+    _CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _CACHE_FILE.write_text(json.dumps(graph), encoding="utf-8")
+
+
+_last_graph = _load_cached_graph()
 
 class AnalyzeRequest(BaseModel):
     repo_path: str
@@ -33,6 +56,7 @@ def analyze(request: AnalyzeRequest):
     extractor.discover_modules()
     extractor.parse_all()
     _last_graph = extractor.to_graph_dict()
+    _save_cached_graph(_last_graph)
     return _last_graph
 
 
