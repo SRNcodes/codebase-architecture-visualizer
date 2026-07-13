@@ -13,6 +13,12 @@ from tree_sitter import Language, Parser
 
 PY_LANGUAGE = Language(tspython.language())
 
+# Common source-root directories: code under these typically isn't part of
+# the dotted import path (e.g. src/mypkg/foo.py is imported as
+# `import mypkg.foo`, not `import src.mypkg.foo`, because the layout adds
+# the root to sys.path). Tried as a fallback when a plain match fails.
+_SRC_ROOTS = ("src", "lib", "source")
+
 
 class ImportGraphExtractor:
     def __init__(self, repo_root: str):
@@ -76,8 +82,22 @@ class ImportGraphExtractor:
         """
         Walk the AST and return the set of raw import targets as strings
         (e.g. "os", "collections", ".utils", "..pkg.thing").
+
+        For `from X import a, b`, each imported name is also joined onto the
+        module path (e.g. "pkg.sub", "pkg.sub.mod") since the name may be a
+        submodule rather than an attribute — `_resolve_import`'s prefix
+        search then tries the most specific candidate first and falls back
+        to the bare module path if the name isn't itself a module.
         """
         imports = set()
+
+        def join(module_text: str, name_text: str) -> str:
+            # A pure-dots relative prefix (".", "..") needs no separator
+            # before the name; a module with a trailing name does.
+            if module_text.endswith('.'):
+                return f"{module_text}{name_text}"
+            return f"{module_text}.{name_text}"
+
         def walk(node):
             if node.type == "import_statement":
                 name_node = node.child_by_field_name("name")
@@ -89,10 +109,19 @@ class ImportGraphExtractor:
             elif node.type == "import_from_statement":
                 module_node = node.child_by_field_name("module_name")
                 if module_node is not None:
-                    imports.add(module_node.text.decode("utf-8"))
+                    module_text = module_node.text.decode("utf-8")
+                    imports.add(module_text)
+                    for name_node in node.children_by_field_name("name"):
+                        if name_node.type == "wildcard_import":
+                            continue
+                        if name_node.type == "aliased_import":
+                            name_node = name_node.child_by_field_name("name")
+                        if name_node is not None:
+                            name_text = name_node.text.decode("utf-8")
+                            imports.add(join(module_text, name_text))
             for child in node.children:
                 walk(child)
-    
+
         walk(root_node)
         return imports
 
@@ -114,11 +143,26 @@ class ImportGraphExtractor:
         else:
             # absolute import — try progressively shorter prefixes
             parts = raw_import.split('.')
-            for i in range(len(parts), 0, -1):
-                candidate = '.'.join(parts[:i])
-                if candidate in self.module_index:
+            candidate = self._match_prefix(parts)
+            if candidate:
+                return candidate
+            # src/lib layouts add the root to sys.path, so code imports
+            # "mypkg.foo" for a file actually stored at "src.mypkg.foo" —
+            # retry with each known source root prepended.
+            for root in _SRC_ROOTS:
+                candidate = self._match_prefix([root, *parts])
+                if candidate:
                     return candidate
             return None
+
+    def _match_prefix(self, parts: list[str]) -> str | None:
+        """Try progressively shorter dotted prefixes of `parts` against the
+        module index, longest (most specific) first."""
+        for i in range(len(parts), 0, -1):
+            candidate = '.'.join(parts[:i])
+            if candidate in self.module_index:
+                return candidate
+        return None
 
     # ------------------------------------------------------------------
     # Output
