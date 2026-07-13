@@ -118,6 +118,7 @@ function App() {
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
+  const [isolatedPkg, setIsolatedPkg] = useState(null);
   const fgRef = useRef();
   const shouldFitRef = useRef(false);
 
@@ -128,6 +129,7 @@ function App() {
     setSelectedNode(null);
     setSummary("");
     setSearch("");
+    setIsolatedPkg(null);
     try {
       const response = await fetch(`${BACKEND}/analyze`, {
         method: "POST",
@@ -204,8 +206,9 @@ function App() {
   }, [graph.nodes]);
 
   // What should be drawn at full brightness right now: a search match set,
-  // or the hovered/selected node plus its direct neighbors. Everything else
-  // dims — this is what makes "how is X connected" answerable at a glance.
+  // an isolated package cluster, or the hovered/selected node plus its
+  // direct neighbors. Everything else dims — this is what makes "how is X
+  // connected" (or "what's in this package") answerable at a glance.
   const highlight = useMemo(() => {
     if (search.trim()) {
       const q = search.trim().toLowerCase();
@@ -214,16 +217,39 @@ function App() {
       );
       return matched.size ? { nodes: matched, focus: null } : null;
     }
+    if (isolatedPkg) {
+      const topPkgs = new Set(
+        graph.legend.filter((e) => e.pkg !== "Other").map((e) => e.pkg)
+      );
+      const matched = new Set(
+        graph.nodes
+          .filter((n) =>
+            isolatedPkg === "Other" ? !topPkgs.has(n.pkg) : n.pkg === isolatedPkg
+          )
+          .map((n) => n.id)
+      );
+      return { nodes: matched, focus: null };
+    }
     const activeId = hoveredId || selectedNode?.id;
     if (!activeId) return null;
     const neigh = graph.neighbors.get(activeId) || new Set();
     return { nodes: new Set([activeId, ...neigh]), focus: activeId };
-  }, [search, hoveredId, selectedNode, graph]);
+  }, [search, isolatedPkg, hoveredId, selectedNode, graph]);
 
   useEffect(() => {
-    if (!search.trim() || !fgRef.current || !highlight) return;
+    if (!fgRef.current || !highlight) return;
+    if (!search.trim() && !isolatedPkg) return;
     fgRef.current.zoomToFit(400, 80, (n) => highlight.nodes.has(n.id));
-  }, [search, highlight]);
+  }, [search, isolatedPkg, highlight]);
+
+  const toggleIsolatedPkg = (pkg) => {
+    setSearch("");
+    setIsolatedPkg((current) => (current === pkg ? null : pkg));
+  };
+
+  const resetView = () => {
+    if (fgRef.current) fgRef.current.zoomToFit(400, 60);
+  };
 
   return (
     <div className="App">
@@ -256,14 +282,37 @@ function App() {
             />
 
             <div className="legend">
-              {graph.legend.map((entry) => (
-                <div className="legend-row" key={entry.pkg}>
-                  <span className="legend-dot" style={{ background: entry.color }} />
-                  <span className="legend-name">{entry.pkg}</span>
-                  <span className="legend-count">{entry.count}</span>
-                </div>
-              ))}
+              {graph.legend.map((entry) => {
+                const isActive = isolatedPkg === entry.pkg;
+                const isDimmed = isolatedPkg && !isActive;
+                return (
+                  <button
+                    type="button"
+                    className={`legend-row${isActive ? " active" : ""}${isDimmed ? " dimmed" : ""}`}
+                    key={entry.pkg}
+                    onClick={() => toggleIsolatedPkg(entry.pkg)}
+                    title={`Show only ${entry.pkg}`}
+                  >
+                    <span className="legend-dot" style={{ background: entry.color }} />
+                    <span className="legend-name">{entry.pkg}</span>
+                    <span className="legend-count">{entry.count}</span>
+                  </button>
+                );
+              })}
             </div>
+            {isolatedPkg && (
+              <button
+                type="button"
+                className="clear-isolate-button"
+                onClick={() => setIsolatedPkg(null)}
+              >
+                Clear filter
+              </button>
+            )}
+            <p className="hint-text">
+              Click a package to isolate it. Arrows point from the importing
+              module to the module it imports.
+            </p>
           </>
         )}
 
@@ -304,7 +353,7 @@ function App() {
         )}
       </div>
 
-      <div className="graph-container">
+      <div className={`graph-container${analyzing ? " is-analyzing" : ""}`}>
         {!hasGraph && !analyzing && (
           <div className="graph-placeholder">
             Enter a repo path and click Analyze to see the import graph.
@@ -312,6 +361,22 @@ function App() {
             Modules cluster by package — hover or click a node to trace its
             connections; click empty space to clear.
           </div>
+        )}
+        {analyzing && (
+          <div className="graph-loading">
+            <div className="spinner" />
+            <p>Analyzing repo…</p>
+          </div>
+        )}
+        {hasGraph && (
+          <button
+            type="button"
+            className="reset-view-button"
+            onClick={resetView}
+            title="Re-fit the graph to the view"
+          >
+            Reset view
+          </button>
         )}
         <ForceGraph2D
           ref={fgRef}
@@ -322,6 +387,7 @@ function App() {
           onBackgroundClick={() => {
             setSelectedNode(null);
             setSearch("");
+            setIsolatedPkg(null);
           }}
           onEngineStop={() => {
             if (shouldFitRef.current) {
